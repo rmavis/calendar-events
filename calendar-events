@@ -1,116 +1,53 @@
 #!/usr/bin/env ruby
+#
+# This program might be better written in Scheme?
+#
 
 require 'date'
-
-class String
-  # is_date? :: void -> bool
-  def is_date?
-    self.match(/^[0-9]{4}(-[0-9]{2}){2}$/)
-  end
-
-  # to_timestamp :: string? -> int
-  def to_timestamp(time = '00:00')
-    DateTime.parse([self, time].join(' ')).to_time.to_i
-  end
+require_relative 'extensions.rb'
+{
+  :EventStream => 'event-stream.rb',
+}.each do |sym,file|
+  autoload(sym, "#{__dir__}/#{file}")
 end
 
 # usage :: string
 def usage
   <<~END
-  calendar-events: usage coming soon
-  END
+      calendar-events: usage coming soon
+    END
 end
 
-# default_file :: string
-def default_file
-  "#{File.expand_path('~')}/.calendar/calendar-events"
-end
-
-# run :: [string] -> void
-def run(args)
-  acts = args_to_acts(args)
-  if (acts.length > 0)
-    autoload!
-    file = File.open(default_file)
-    stream = EventStream.new(file)
-    while (event = stream.next!)
-      print = true
-      acts.each do |act|
-        if (!act.call(event))
-          print = false
-          break
-        end
-      end
-      if (print)
-        print_event(event)
-      end
-    end
-    file.close
-  end
-end
-
-# args_to_acts :: [string] -> [act]?
+# input_form_specs :: void -> specs
+# specs = {opt => [want, type, check, transform, act]}
+# opt = (string) an option, e.g. passed on the command line
+# want = (int) the number of arguments this option wants.
+# type = (symbol) the type of argument this option specifies,
+#   e.g. :data, :conf
+# check = (symbol) a method name on String that validates the input
+#   value and returns boolean indicating whether it's acceptable
+# transform = (symbol) a method name on String that transforms the
+#   input value into the form required internally
 # act = event -> bool
-# date = (string) a date in a known/expected format
 # event = see EventStream.next!
-def args_to_acts(args)
-  # Special cases.
-  if (args.empty?)
-    return [method(:on?).curry.('today'.to_timestamp)]
-  elsif ((args.length == 1) &&
-         (args[0].is_date?))
-    return [method(:on?).curry.(args[0].to_timestamp)]
-  end
-
-  acts = [ ]
-  n = 0
-  max = args.length
-  while (n < max)
-    arg = args[n].downcase
-    if (arg_checks.has_key?(arg))
-      check = arg_checks[arg]
-      if (check[0] == :unary_form?)
-        if (self.send(check[0], args.slice(n + 1)))
-          acts.push(check[1].call(args.slice(n + 1).to_timestamp))
-          n += 1
-        else
-          $stderr.puts "Invalid form for option '#{arg}': there should be one date."
-        end
-      elsif (check[0] == :binary_form?)
-        if (self.send(check[0], args.slice(n + 1), args.slice(n + 2)))
-          acts.push(check[1].call(args.slice(n + 1).to_timestamp, args.slice(n + 2).to_timestamp))
-          n += 2
-        else
-          $stderr.puts "Invalid form for option '#{arg}': there should be two dates."
-        end
-      else
-        # nullary forms
-        check[1].call
-      end
-    else
-      $stderr.puts "Invalid option: '#{arg}'"
-    end
-    n += 1
-  end
-  return acts
-end
-
-# arg_checks :: void -> {opt => [formcheck, actmaker]}
-# formcheck = (method on `self`) :: (string[, string]) -> bool
-# actmaker = (int[, int]) -> act
-# opt = (string) a command line option
-# other args, see `args_to_acts`
-def arg_checks
+def input_form_specs
   {
-    '-h' => [:nullary_form?, lambda {$stdout.puts usage}],
-    '-eq' => [:unary_form?, lambda {|date| method(:between?).curry.(date).(date + 86400)}],
-    '-ne' => [:unary_form?, lambda {|date| method(:not_on?).curry.(date)}],
-    '-lt' => [:unary_form?, lambda {|date| method(:before?).curry.(false).(date)}],
-    '-le' => [:unary_form?, lambda {|date| method(:before?).curry.(true).(date)}],
-    '-gt' => [:unary_form?, lambda {|date| method(:after?).curry.(false).(date)}],
-    '-ge' => [:unary_form?, lambda {|date| method(:after?).curry.(true).(date)}],
-    '-bt' => [
-      :binary_form?,
+    '-A' => [
+      :data, 1, :is_numeric?, :to_i,
+      lambda do |n|
+        today = 'today'.to_timestamp
+        method(:between?).curry.(true).(today).(today + (86400 * (n + 1)))
+      end
+    ],
+    '-B' => [
+      :data, 1, :is_numeric?, :to_i,
+      lambda do |n|
+        today = 'today'.to_timestamp
+        method(:between?).curry.(true).(today - (86400 * n)).(today)
+      end
+    ],
+    '-be' => [
+      :data, 2, :is_date?, :to_timestamp,
       lambda do |d1,d2|
         if (d1 < d2)
           method(:between?).curry.(true).(d1).(d2)
@@ -119,21 +56,154 @@ def arg_checks
         end
       end
     ],
+    '-bt' => [
+      :data, 2, :is_date?, :to_timestamp,
+      lambda do |d1,d2|
+        if (d1 < d2)
+          method(:between?).curry.(false).(d1).(d2)
+        else
+          method(:between?).curry.(false).(d2).(d1)
+        end
+      end
+    ],
+    '-eq' => [
+      :data, 1, :is_date?, :to_timestamp,
+      lambda {|date| method(:on?).curry.(date)}
+    ],
+    '-f' => [
+      :conf, 1, :is_file?, :to_abs_path,
+      lambda {|path| {:file => path}}
+    ],
+    '-ge' => [
+      :data, 1, :is_date?, :to_timestamp,
+      lambda {|date| method(:after?).curry.(true).(date)}
+    ],
+    '-gt' => [
+      :data, 1, :is_date?, :to_timestamp,
+      lambda {|date| method(:after?).curry.(false).(date)}
+    ],
+    '-h' => [
+      :action, 0, nil, nil, lambda {$stdout.puts usage}
+    ],
+    '-le' => [
+      :data, 1, :is_date?, :to_timestamp,
+      lambda {|date| method(:before?).curry.(true).(date)}
+    ],
+    '-lt' => [
+      :data, 1, :is_date?, :to_timestamp,
+      lambda {|date| method(:before?).curry.(false).(date)}
+    ],
+    '-ne' => [
+      :data, 1, :is_date?, :to_timestamp,
+      lambda {|date| method(:not_on?).curry.(date)}
+    ],
   }
 end
 
-# unary_form? :: string? -> bool
-def unary_form?(arg)
-  ((arg.is_a?(String)) &&
-   (arg.is_date?))
+# default_file :: void -> string
+def default_file
+  "#{File.expand_path('~')}/.calendar/calendar-events"
 end
 
-# binary_form? :: (string?, string?) -> bool
-def binary_form?(arg1, arg2)
-  ((arg1.is_a?(String)) &&
-   (arg2.is_a?(String)) &&
-   (arg1.is_date?) &&
-   (arg2.is_date?))
+# prescreen_input :: [string]? -> [string]
+def prescreen_input(args)
+  if ((args.nil?) || (args.empty?))
+    ['-eq', Date.today.strftime('%Y-%m-%d')]
+  elsif ((args.length == 1) && (args[0].is_date?))
+    ['-eq', args[0]]
+  else
+    args
+  end
+end
+
+# reduce_input :: ([string], specs) -> job
+# specs, act = see `input_form_specs`
+# job = {
+#   :acts => [act]
+#   :conf => conf
+# }
+# conf = (hash) will at very least contain:
+#   :file => (string) absolute path
+def reduce_input(input, specs)
+  acts = [ ]
+  conf = {
+    :file => default_file,
+  }
+
+  n = 0
+  max = input.length
+  while (n < max)
+    arg = input[n]
+    if (specs.has_key?(arg))
+      spec = specs[arg]
+      check = check_input(input.slice(n + 1, max - n), spec[1], spec[2], spec[3], spec[4])
+      if (check.nil?)
+        $stderr.puts "calendar-events: invalid form for option '#{arg}'."
+      else
+        if (spec[0] == :data)
+          acts.push(check)
+        elsif (spec[0] == :conf)
+          conf = conf.merge(check)
+        else  # Immediate actions.
+          check.call
+        end
+        n += spec[1]
+      end
+    else
+      $stderr.puts "Invalid option: '#{arg}'"
+    end
+    n += 1
+  end
+
+  return {
+    :acts => acts,
+    :conf => conf,
+  }
+end
+
+# check_input :: (args, want, type, check, transform, (a -> act|hash)) -> (act|hash)?
+# args, want, type, check, transform, act = see `input_form_specs`
+def check_input(args, want, check, transform, act)
+  if (want == 0)
+    return act
+  end
+  if (args.length < want)
+    return nil
+  end
+  values = [ ]
+  args.slice(0, want).each do |item|
+    if (item.send(check))
+      values.push(item.send(transform))
+    else
+      return nil
+    end
+  end
+  return act.call(*values)
+end
+
+# run :: job -> void
+# job = see `reduce_input`
+def run(job)
+  if (job[:acts].length > 0)
+    events = [ ]
+    file = File.open(job[:conf][:file])
+    stream = EventStream.new(file)
+    while (event = stream.next!)
+      include = true
+      job[:acts].each do |act|
+        if (!act.call(event))
+          include = false
+          break
+        end
+      end
+      if (include)
+        events.push(event)
+      end
+    end
+    file.close
+    #events.sort! { |a,b| a[:timestamp] <=> b[:timestamp] }
+    events.each { |event| print_event(event) }
+  end
 end
 
 # before? :: (bool, int, event) -> bool
@@ -176,13 +246,8 @@ def print_event(event)
   $stdout.puts "#{event[:date]}\t#{event[:text]}"
 end
 
-# autoload! :: void -> void
-def autoload!
-  {
-    :EventStream => 'event-stream.rb',
-  }.each do |sym,file|
-    autoload(sym, "#{__dir__}/#{file}")
-  end
-end
-
-run(ARGV)
+# Run it.
+run(
+  reduce_input(
+    prescreen_input(ARGV),
+    input_form_specs))
