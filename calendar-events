@@ -1,0 +1,188 @@
+#!/usr/bin/env ruby
+
+require 'date'
+
+class String
+  # is_date? :: void -> bool
+  def is_date?
+    self.match(/^[0-9]{4}(-[0-9]{2}){2}$/)
+  end
+
+  # to_timestamp :: string? -> int
+  def to_timestamp(time = '00:00')
+    DateTime.parse([self, time].join(' ')).to_time.to_i
+  end
+end
+
+# usage :: string
+def usage
+  <<~END
+  calendar-events: usage coming soon
+  END
+end
+
+# default_file :: string
+def default_file
+  "#{File.expand_path('~')}/.calendar/calendar-events"
+end
+
+# run :: [string] -> void
+def run(args)
+  acts = args_to_acts(args)
+  if (acts.length > 0)
+    autoload!
+    file = File.open(default_file)
+    stream = EventStream.new(file)
+    while (event = stream.next!)
+      print = true
+      acts.each do |act|
+        if (!act.call(event))
+          print = false
+          break
+        end
+      end
+      if (print)
+        print_event(event)
+      end
+    end
+    file.close
+  end
+end
+
+# args_to_acts :: [string] -> [act]?
+# act = event -> bool
+# date = (string) a date in a known/expected format
+# event = see EventStream.next!
+def args_to_acts(args)
+  # Special cases.
+  if (args.empty?)
+    return [method(:on?).curry.('today'.to_timestamp)]
+  elsif ((args.length == 1) &&
+         (args[0].is_date?))
+    return [method(:on?).curry.(args[0].to_timestamp)]
+  end
+
+  acts = [ ]
+  n = 0
+  max = args.length
+  while (n < max)
+    arg = args[n].downcase
+    if (arg_checks.has_key?(arg))
+      check = arg_checks[arg]
+      if (check[0] == :unary_form?)
+        if (self.send(check[0], args.slice(n + 1)))
+          acts.push(check[1].call(args.slice(n + 1).to_timestamp))
+          n += 1
+        else
+          $stderr.puts "Invalid form for option '#{arg}': there should be one date."
+        end
+      elsif (check[0] == :binary_form?)
+        if (self.send(check[0], args.slice(n + 1), args.slice(n + 2)))
+          acts.push(check[1].call(args.slice(n + 1).to_timestamp, args.slice(n + 2).to_timestamp))
+          n += 2
+        else
+          $stderr.puts "Invalid form for option '#{arg}': there should be two dates."
+        end
+      else
+        # nullary forms
+        check[1].call
+      end
+    else
+      $stderr.puts "Invalid option: '#{arg}'"
+    end
+    n += 1
+  end
+  return acts
+end
+
+# arg_checks :: void -> {opt => [formcheck, actmaker]}
+# formcheck = (method on `self`) :: (string[, string]) -> bool
+# actmaker = (int[, int]) -> act
+# opt = (string) a command line option
+# other args, see `args_to_acts`
+def arg_checks
+  {
+    '-h' => [:nullary_form?, lambda {$stdout.puts usage}],
+    '-eq' => [:unary_form?, lambda {|date| method(:between?).curry.(date).(date + 86400)}],
+    '-ne' => [:unary_form?, lambda {|date| method(:not_on?).curry.(date)}],
+    '-lt' => [:unary_form?, lambda {|date| method(:before?).curry.(false).(date)}],
+    '-le' => [:unary_form?, lambda {|date| method(:before?).curry.(true).(date)}],
+    '-gt' => [:unary_form?, lambda {|date| method(:after?).curry.(false).(date)}],
+    '-ge' => [:unary_form?, lambda {|date| method(:after?).curry.(true).(date)}],
+    '-bt' => [
+      :binary_form?,
+      lambda do |d1,d2|
+        if (d1 < d2)
+          method(:between?).curry.(true).(d1).(d2)
+        else
+          method(:between?).curry.(true).(d2).(d1)
+        end
+      end
+    ],
+  }
+end
+
+# unary_form? :: string? -> bool
+def unary_form?(arg)
+  ((arg.is_a?(String)) &&
+   (arg.is_date?))
+end
+
+# binary_form? :: (string?, string?) -> bool
+def binary_form?(arg1, arg2)
+  ((arg1.is_a?(String)) &&
+   (arg2.is_a?(String)) &&
+   (arg1.is_date?) &&
+   (arg2.is_date?))
+end
+
+# before? :: (bool, int, event) -> bool
+def before?(inclusive, date, event)
+  if (inclusive)
+    event[:timestamp] <= date
+  else
+    event[:timestamp] < date
+  end
+end
+
+# after? :: (bool, int, event) -> bool
+def after?(inclusive, date, event)
+  if (inclusive)
+    event[:timestamp] >= date
+  else
+    event[:timestamp] > date
+  end
+end
+
+# between? :: (bool, int, int, event) -> bool
+def between?(inclusive, start, stop, event)
+  ((after?(inclusive, start, event)) &&
+   (before?(inclusive, stop, event)))
+end
+
+# on? :: (int, event) -> bool
+def on?(date, event)
+  between?(true, date, (date + 86400), event)
+end
+
+# not_on? :: (int, event) -> bool
+# This solution is not beautiful.  TODO
+def not_on?(date, event)
+  !on?(date, event)
+end
+
+# print_event :: event -> void
+def print_event(event)
+  $stdout.puts "#{event[:date]}\t#{event[:text]}"
+end
+
+# autoload! :: void -> void
+def autoload!
+  {
+    :EventStream => 'event-stream.rb',
+  }.each do |sym,file|
+    autoload(sym, "#{__dir__}/#{file}")
+  end
+end
+
+run(ARGV)
