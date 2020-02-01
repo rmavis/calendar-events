@@ -1,7 +1,4 @@
 #!/usr/bin/env ruby
-#
-# This program might be better written in Scheme?
-#
 
 require 'date'
 require_relative 'extensions.rb'
@@ -19,17 +16,18 @@ def usage
 end
 
 # input_form_specs :: void -> specs
-# specs = {opt => [want, type, check, transform, act]}
+# specs = {opt => [type, want, check, transform, act, err]}
 # opt = (string) an option, e.g. passed on the command line
-# want = (int) the number of arguments this option wants.
 # type = (symbol) the type of argument this option specifies,
 #   e.g. :data, :conf
+# want = (int) the number of arguments this option wants.
 # check = (symbol) a method name on String that validates the input
 #   value and returns boolean indicating whether it's acceptable
 # transform = (symbol) a method name on String that transforms the
 #   input value into the form required internally
 # act = event -> bool
 # event = see EventStream.next!
+# err = string -> string
 def input_form_specs
   {
     '-A' => [
@@ -37,14 +35,16 @@ def input_form_specs
       lambda do |n|
         today = 'today'.to_timestamp
         method(:between?).curry.(true).(today).(today + (86400 * (n + 1)))
-      end
+      end,
+      lambda {|arg| "The option -A expects its argument to be a number."}
     ],
     '-B' => [
       :data, 1, :is_numeric?, :to_i,
       lambda do |n|
         today = 'today'.to_timestamp
         method(:between?).curry.(true).(today - (86400 * n)).(today)
-      end
+      end,
+      lambda {|arg| "The option -B expects its argument to be a number."}
     ],
     '-be' => [
       :data, 2, :is_date?, :to_timestamp,
@@ -54,7 +54,8 @@ def input_form_specs
         else
           method(:between?).curry.(true).(d2).(d1)
         end
-      end
+      end,
+      invalid_date_message
     ],
     '-bt' => [
       :data, 2, :is_date?, :to_timestamp,
@@ -64,38 +65,46 @@ def input_form_specs
         else
           method(:between?).curry.(false).(d2).(d1)
         end
-      end
+      end,
+      invalid_date_message
     ],
     '-eq' => [
       :data, 1, :is_date?, :to_timestamp,
-      lambda {|date| method(:on?).curry.(date)}
+      lambda {|date| method(:on?).curry.(date)},
+      invalid_date_message
     ],
     '-f' => [
       :conf, 1, :is_file?, :to_abs_path,
-      lambda {|path| {:file => path}}
+      lambda {|path| {:file => path}},
+      lambda {|arg| "Cannot read events from the file '#{arg}'."}
     ],
     '-ge' => [
       :data, 1, :is_date?, :to_timestamp,
-      lambda {|date| method(:after?).curry.(true).(date)}
+      lambda {|date| method(:after?).curry.(true).(date)},
+      invalid_date_message
     ],
     '-gt' => [
       :data, 1, :is_date?, :to_timestamp,
-      lambda {|date| method(:after?).curry.(false).(date)}
+      lambda {|date| method(:after?).curry.(false).(date)},
+      invalid_date_message
     ],
     '-h' => [
       :action, 0, nil, nil, lambda {$stdout.puts usage}
     ],
     '-le' => [
       :data, 1, :is_date?, :to_timestamp,
-      lambda {|date| method(:before?).curry.(true).(date)}
+      lambda {|date| method(:before?).curry.(true).(date)},
+      invalid_date_message
     ],
     '-lt' => [
       :data, 1, :is_date?, :to_timestamp,
-      lambda {|date| method(:before?).curry.(false).(date)}
+      lambda {|date| method(:before?).curry.(false).(date)},
+      invalid_date_message
     ],
     '-ne' => [
       :data, 1, :is_date?, :to_timestamp,
-      lambda {|date| method(:not_on?).curry.(date)}
+      lambda {|date| method(:not_on?).curry.(date)},
+      invalid_date_message
     ],
   }
 end
@@ -136,10 +145,8 @@ def reduce_input(input, specs)
     arg = input[n]
     if (specs.has_key?(arg))
       spec = specs[arg]
-      check = check_input(input.slice(n + 1, max - n), spec[1], spec[2], spec[3], spec[4])
-      if (check.nil?)
-        $stderr.puts "calendar-events: invalid form for option '#{arg}'."
-      else
+      check = check_input!(input.slice(n + 1, max - n), spec[1], spec[2], spec[3], spec[4], spec[5])
+      if (!check.nil?)
         if (spec[0] == :data)
           acts.push(check)
         elsif (spec[0] == :conf)
@@ -147,10 +154,10 @@ def reduce_input(input, specs)
         else  # Immediate actions.
           check.call
         end
-        n += spec[1]
       end
+      n += spec[1]
     else
-      $stderr.puts "Invalid option: '#{arg}'"
+      $stderr.puts "calendar-events: Invalid option: '#{arg}'"
     end
     n += 1
   end
@@ -161,9 +168,10 @@ def reduce_input(input, specs)
   }
 end
 
-# check_input :: (args, want, type, check, transform, (a -> act|hash)) -> (act|hash)?
-# args, want, type, check, transform, act = see `input_form_specs`
-def check_input(args, want, check, transform, act)
+# check_input! :: (args, want, type, check, transform, err, (a -> act|hash)) -> (act|hash)?
+# args, want, type, check, transform, err, act = see `input_form_specs`
+# This function might write to stderr.
+def check_input!(args, want, check, transform, act, err)
   if (want == 0)
     return act
   end
@@ -172,13 +180,26 @@ def check_input(args, want, check, transform, act)
   end
   values = [ ]
   args.slice(0, want).each do |item|
-    if (item.send(check))
-      values.push(item.send(transform))
-    else
+    begin
+      if (item.send(check))
+        values.push(item.send(transform))
+      else
+        $stderr.puts "calendar-events: #{err.call(item)}"
+        return nil
+      end
+    rescue
+      # This is to catch exceptions raised by the check or transform
+      # functions. For example, Date.parse could raise one.
+      $stderr.puts "calendar-events: #{err.call(item)}"
       return nil
     end
   end
   return act.call(*values)
+end
+
+# invalid_date_message :: void -> (string -> string)
+def invalid_date_message
+  lambda {|arg| "'#{arg}' is not a valid date."}
 end
 
 # run :: job -> void

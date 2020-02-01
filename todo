@@ -1,4 +1,4 @@
-- [ ] Better error messages
+- [X] Better error messages
   Try using a invalid date or file
 - [ ] Don't use default file if given file is invalid
 - [ ] Better usage/help
