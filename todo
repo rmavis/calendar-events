@@ -1,6 +1,6 @@
 - [X] Better error messages
   Try using a invalid date or file
-- [ ] Don't use default file if given file is invalid
+- [X] Don't use default file if given file is invalid
 - [ ] Better usage/help
 - [ ] Long options / option aliases
 - [ ] Allow date specification for -A and -B
