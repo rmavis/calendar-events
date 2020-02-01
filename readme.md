@@ -10,7 +10,51 @@
 
 `calendar-events` is a companion to the venerable `calendar` program. `calendar` is designed to handle recurring events, like birthdays, paydays, or holidays---`calendar-events` is for non-recurring events, like dates or concerts. It can handle specific dates and, optionally, times.
 
-The format of the data file is similar to that expected by `calendar`. Events are listed like
+## Usage
+
+If no file is specified, a file at `~/.calendar/calendar-events` will be used if it exists.
+
+Events are queried with options used by both `calendar` (like `-A` and `-B`) and `test` (like `-lt` and `-ge`). For querying events, the general form is:
+
+    calendar-events QUERY NUM|DATE
+
+Matching events will be printed to stdout.
+
+If no arguments are given, then the query will check for events on the current date. If the only argument given is a date, then the query option `-eq` (equals) will be assumed.
+
+The options are:
+
+    -h: display a help message
+    
+    -A n: query events up to n days before today
+    
+    -B n: query events up to n days after today
+    
+    -be date date: query events on or between the given dates
+    
+    -bt date date: query events between the given dates
+    
+    -eq date: query events on the given date
+    
+    -f filepath: use the given file instead of the default
+    
+    -ge date: query events on or after the given date
+    
+    -gt date: query events after the given date
+    
+    -le date: query events on or before the given date
+    
+    -lt date: query events before the given date
+    
+    -ne date: query events not on the given date
+
+Dates must be specified in the format YYYY-MM-DD.
+
+Any number of query forms can be given. Only events matching every query will be printed.
+
+## Data File
+
+The format of the data file is similar to that expected by `calendar`. Events are listed like:
 
     2020-01-01 10:30	New Year's brunch
     2020-01-23	Game night
@@ -23,7 +67,7 @@ The format of the data file is similar to that expected by `calendar`. Events ar
 That is:
 
 0. A date in the format YYYY-MM-DD.
-1. Optionally, a time in the format HH:MM.
+1. Optionally, a time in the format HH:MM separated from the date by a space.
 2. A tab character.
 3. A description.
 
@@ -31,10 +75,27 @@ Descriptions can span multiple lines if the lines following the first begin with
 
 Lines that do not match this format are ignored.
 
-If no file is specified, a file at `~/.calendar/calendar-events` will be checked.
+## Examples
 
-Events are queried with options used by both `calendar` (like `-A` and `-B`) and `test` (like `-lt` and `-ge`).
+Query events happening today:
 
-Readme coming soon. In the meantime, see the [options][options] file for a usage summary.
+     $ calendar-events
 
-[options]: ./options
+Query events happening after today:
+
+    $ calendar-events -gt 2020-01-31
+
+Query events happening between an election and Christmas:
+
+    $ calendar-events -be 2020-11-03 2020-12-25
+
+## Dependencies
+
+- ruby
+
+## Installation
+
+0. Clone the repository: https://github.com/rmavis/calendar-events.
+1. Create a symlink to the executable `calendar-events` somewhere in your $PATH.
+2. Ensure the executable is executable (`chmod` it 744, etc).
+3. There is no step 3.
