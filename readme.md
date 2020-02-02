@@ -93,7 +93,7 @@ Query events happening between Halloween and an election:
 
 Query events happening this February, combine them with February's `calendar` events, and sort the results:
 
-    $ (calendar-events -ge 2020-02-01 -lt 2020-03-01 ; calendar -t 2020-02-01 -A 28) | sort
+    $ (calendar-events -ge 2020-02-01 -lt 2020-03-01 -co ; calendar -t 2020-02-01 -A 28) | sort -M
 
 ## Dependencies
 
