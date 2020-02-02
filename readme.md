@@ -24,9 +24,9 @@ If no arguments are given, then the query will check for events on the current d
 
 The options are:
 
-    -A n: query events up to n days before today
+    -A n: query events up to n days after today
     
-    -B n: query events up to n days after today
+    -B n: query events up to n days before today
     
     -be date date: query events on or between the given dates
     
