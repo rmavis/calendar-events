@@ -25,7 +25,9 @@ end
 #   value and returns boolean indicating whether it's acceptable
 # transform = (symbol) a method name on String that transforms the
 #   input value into the form required internally
-# act = event -> bool
+# act = (event -> bool)|hash
+#   If the `opt` expects 0 arguments, the `act` can be a hash.
+#   This is to enable easy :conf modification, etc.
 # event = see EventStream.next!
 # err = string -> string
 def input_form_specs
@@ -68,6 +70,9 @@ def input_form_specs
       end,
       invalid_date_message
     ],
+    '-co' => [
+      :conf, 0, nil, nil, {:printer => calendar_format_printer}, nil
+    ],
     '-eq' => [
       :data, 1, :is_date?, :to_timestamp,
       lambda {|date| method(:on?).curry.(date)},
@@ -89,7 +94,7 @@ def input_form_specs
       invalid_date_message
     ],
     '-h' => [
-      :action, 0, nil, nil, lambda {$stdout.puts usage}
+      :action, 0, nil, nil, lambda {$stdout.puts usage}, nil
     ],
     '-le' => [
       :data, 1, :is_date?, :to_timestamp,
@@ -114,6 +119,26 @@ def default_file
   "#{File.expand_path('~')}/.calendar/calendar-events"
 end
 
+# default_printer :: void -> (event -> string)
+# event = see EventStream.next!
+def default_printer
+  lambda do |event|
+    "#{event[:date]}\t#{event[:text]}"
+  end
+end
+
+# calendar_format_printer :: void -> (event -> string)
+# event = see EventStream.next!
+def calendar_format_printer
+  lambda do |event|
+    if (event[:date].include?(':'))
+      "#{DateTime.parse(event[:date]).strftime('%b %d %H:%I')}\t#{event[:text]}"
+    else
+      "#{Date.parse(event[:date]).strftime('%b %d')}\t#{event[:text]}"
+    end
+  end
+end
+
 # prescreen_input :: [string]? -> [string]
 def prescreen_input(args)
   if ((args.nil?) || (args.empty?))
@@ -133,10 +158,13 @@ end
 # }
 # conf = (hash) will at very least contain:
 #   :file => (string) absolute path
+#   :printer => event -> string
+# event = see EventStream.next!
 def reduce_input(input, specs)
   acts = [ ]
   conf = {
     :file => default_file,
+    :printer => default_printer,
   }
 
   n = 0
@@ -206,7 +234,6 @@ end
 # job = see `reduce_input`
 def run(job)
   if (job[:acts].length > 0)
-    events = [ ]
     file = File.open(job[:conf][:file])
     stream = EventStream.new(file)
     while (event = stream.next!)
@@ -218,16 +245,15 @@ def run(job)
         end
       end
       if (include)
-        events.push(event)
+        print_event(job[:conf][:printer], event)
       end
     end
     file.close
-    #events.sort! { |a,b| a[:timestamp] <=> b[:timestamp] }
-    events.each { |event| print_event(event) }
   end
 end
 
 # before? :: (bool, int, event) -> bool
+# event = see EventStream.next!
 def before?(inclusive, date, event)
   if (inclusive)
     event[:timestamp] <= date
@@ -237,6 +263,7 @@ def before?(inclusive, date, event)
 end
 
 # after? :: (bool, int, event) -> bool
+# event = see EventStream.next!
 def after?(inclusive, date, event)
   if (inclusive)
     event[:timestamp] >= date
@@ -246,29 +273,36 @@ def after?(inclusive, date, event)
 end
 
 # between? :: (bool, int, int, event) -> bool
+# event = see EventStream.next!
 def between?(inclusive, start, stop, event)
   ((after?(inclusive, start, event)) &&
    (before?(inclusive, stop, event)))
 end
 
 # on? :: (int, event) -> bool
+# event = see EventStream.next!
 def on?(date, event)
   between?(true, date, (date + 86400), event)
 end
 
 # not_on? :: (int, event) -> bool
+# event = see EventStream.next!
 # This solution is not beautiful.  TODO
 def not_on?(date, event)
   !on?(date, event)
 end
 
-# print_event :: event -> void
-def print_event(event)
-  $stdout.puts "#{event[:date]}\t#{event[:text]}"
+# print_event :: (printer, event) -> void
+# printer = (event -> string)
+# event = see EventStream.next!
+def print_event(printer, event)
+  $stdout.puts printer.call(event)
 end
 
 # Run it.
 run(
   reduce_input(
     prescreen_input(ARGV),
-    input_form_specs))
+    input_form_specs
+  )
+)

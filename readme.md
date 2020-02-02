@@ -4,7 +4,7 @@
 
 ## Synopsis
 
-    calendar-events [-h] [(-A|-B) number] [(-lt|-le|-gt|-ge|-eq|-ne) yyyy-mm-dd] [(-bt|-be) yyyy-mm-dd yyyy-mm-dd] [-f filepath]
+    calendar-events [-h] [(-A|-B) number] [(-lt|-le|-gt|-ge|-eq|-ne) yyyy-mm-dd] [(-bt|-be) yyyy-mm-dd yyyy-mm-dd] [-f filepath] [-co]
 
 ## Description
 
@@ -24,8 +24,6 @@ If no arguments are given, then the query will check for events on the current d
 
 The options are:
 
-    -h: display a help message
-    
     -A n: query events up to n days before today
     
     -B n: query events up to n days after today
@@ -34,6 +32,8 @@ The options are:
     
     -bt date date: query events between the given dates
     
+    -co: print output sortable with output from `calendar`
+    
     -eq date: query events on the given date
     
     -f filepath: use the given file instead of the default
@@ -41,6 +41,8 @@ The options are:
     -ge date: query events on or after the given date
     
     -gt date: query events after the given date
+    
+    -h: display a help message
     
     -le date: query events on or before the given date
     
@@ -85,9 +87,13 @@ Query events happening after today:
 
     $ calendar-events -gt 2020-01-31
 
-Query events happening between an election and Christmas:
+Query events happening between Halloween and an election:
 
-    $ calendar-events -be 2020-11-03 2020-12-25
+    $ calendar-events -bt 2020-10-31 2020-11-03
+
+Query events happening this February, combine them with February's `calendar` events, and sort the results:
+
+    $ (calendar-events -ge 2020-02-01 -lt 2020-03-01 ; calendar -t 2020-02-01 -A 28) | sort
 
 ## Dependencies
 
