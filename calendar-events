@@ -132,7 +132,7 @@ end
 def calendar_format_printer
   lambda do |event|
     if (event[:date].include?(':'))
-      "#{DateTime.parse(event[:date]).strftime('%b %d %H:%I')}\t#{event[:text]}"
+      "#{DateTime.parse(event[:date]).strftime('%b %d %H:%J')}\t#{event[:text]}"
     else
       "#{Date.parse(event[:date]).strftime('%b %d')}\t#{event[:text]}"
     end
